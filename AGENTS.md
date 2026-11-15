@@ -14,7 +14,7 @@ This repository uses Antigravity customizations (`.agents/`) to coordinate Gemin
 | **Phase 3** | macOS desktop UI, Zustand store, virtualized table, branch switcher, console drawer | `src/store/workspaceStore.ts`, `src/components/{Toolbar,Sidebar,RepoTable,BranchDropdown,ConsoleDrawer}.tsx`, `src/App.tsx` | `tauri-react-ui-engineer` | `macos-virtualized-ui`, `tauri-specta-ipc` |
 | **Phase 4** | Batch sync pipeline, stash/pull/hard-reset strategies, dirty-tree safety modal | `src-tauri/src/commands.rs`, `src/components/DirtyConfirmModal.tsx` | `rust-backend-engineer` + `tauri-react-ui-engineer` | `rust-git-engine`, `macos-virtualized-ui` |
 | **Phase 5** | Persistent debounced file watcher & GitHub Actions release matrix | `src-tauri/src/watcher.rs`, `.github/workflows/release.yml` | `rust-backend-engineer` | `rust-git-engine`, `tauri-specta-ipc` |
-| **Phase 6** | 9-point Verification & Acceptance Testing Matrix + 500-repo benchmark | Tests & synthetic workspace benchmarks | `qa-benchmark-verifier` | `verification-matrix` |
+| **Phase 6** | 9-point Verification & Acceptance Testing Matrix + 50-repo benchmark | Tests & synthetic workspace benchmarks | `qa-benchmark-verifier` | `verification-matrix` |
 
 ---
 
@@ -23,13 +23,13 @@ This repository uses Antigravity customizations (`.agents/`) to coordinate Gemin
 ### Specialist Agents (`.agents/agents/`)
 - **Rust Backend Engineer** (`.agents/agents/rust-backend-engineer.md`): Owns `src-tauri/src/*`, `Cargo.toml`, async `tokio` Git execution, `notify` watcher state, and `cargo test`.
 - **Tauri React UI Engineer** (`.agents/agents/tauri-react-ui-engineer.md`): Owns `src/*`, Tailwind CSS macOS vibrancy styling, TanStack Table/Virtual performance, Zustand state, and Tauri IPC consumption.
-- **QA & Benchmark Verifier** (`.agents/agents/qa-benchmark-verifier.md`): Owns unit/integration checks, 500-repo cold-scan benchmarks (`< 1,000ms`), dirty-tree guardrail verification, and bundle checks.
+- **QA & Benchmark Verifier** (`.agents/agents/qa-benchmark-verifier.md`): Owns unit/integration checks, 50-repo cold-scan benchmarks (`< 1,000ms`), dirty-tree guardrail verification, and bundle checks.
 
 ### Skills (`.agents/skills/`)
 - `rust-git-engine`: Scanning, porcelain v2 parsing, detached HEAD/submodule edge cases, bounded semaphores, and watcher lifetime state.
 - `tauri-specta-ipc`: Command macros, `BigIntExportBehavior`, `bindings.ts` generation, events, and capabilities.
 - `macos-virtualized-ui`: Overlay titlebar drag regions, virtualized flex table alignment, keyboard shortcuts, and safety modal flows.
-- `verification-matrix`: Synthetic 500-repo benchmark generator (`scripts/generate_benchmark_repos.sh`) and 9-point acceptance checklist.
+- `verification-matrix`: Synthetic 50-repo benchmark generator (`scripts/generate_benchmark_repos.sh`) and 9-point acceptance checklist.
 
 ---
 

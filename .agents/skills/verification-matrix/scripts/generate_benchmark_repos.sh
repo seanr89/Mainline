@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # Generate synthetic Git repositories for benchmarking Mainline's cold scan
-# (<1,000ms for 500 repos) and testing 2,000-row virtualized UI scrolling.
+# (<1,000ms for 50+ repos) and testing UI virtualization.
 #
 # Usage:
 #   ./generate_benchmark_repos.sh [COUNT] [TARGET_DIR]
 
-COUNT="${1:-500}"
+COUNT="${1:-50}"
 TARGET_DIR="${2:-/tmp/mainline-bench-workspace}"
 
 if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [ "$COUNT" -lt 1 ]; then

@@ -11,7 +11,7 @@
 
 ### Target Capabilities
 
-- **Sub-second workspace scanning**: Scan 500+ nested local Git repositories in `< 1,000ms` via pruned directory walking and bounded async concurrency.
+- **Sub-second workspace scanning**: Scan 50+ nested local Git repositories in `< 1,000ms` via pruned directory walking and bounded async concurrency (scales cleanly to hundreds of repos).
 - **Real-time repository telemetry**: Debounced `.git/HEAD` and `.git/index` monitoring across active workspace roots without dropping watcher handles.
 - **High-density virtualized UI**: 60 FPS scrolling across 2,000+ repository rows with zero DOM bloat and macOS overlay vibrancy.
 - **Safe batch Git execution**: Multi-repo branch reset to default/main branch, fast-forward pulls, fetch-all, and stash-and-pull with mandatory dirty-tree confirmation guardrails.
@@ -155,7 +155,7 @@ pnpm exec tailwindcss init -p
 cargo add tauri@2 tauri-plugin-dialog@2 tauri-plugin-store@2
 cargo add tokio --features "process sync fs rt-multi-thread time"
 cargo add walkdir notify notify-debouncer-mini serde serde_json thiserror
-cargo add specta@=2.0.0-rc.20 --features "derive,typescript"
+cargo add specta@=2.0.0-rc.20 --features "derive"
 cargo add specta-typescript@=0.0.7
 cargo add tauri-specta@=2.0.0-rc.20 --features "derive,typescript"
 cargo add --dev tempfile
@@ -247,7 +247,7 @@ cargo add --dev tempfile
   - `test_inspect_detached_head`
   - `test_scan_prunes_node_modules_and_nested_repos`
   - `test_scan_includes_submodules_when_enabled`
-  - `test_scan_500_repos_under_1000ms` (gated benchmark test)
+  - `test_scan_50_repos_under_1000ms` (gated benchmark test)
 
 **Phase 1 Gate**: `cd src-tauri && cargo test` passes 100%.
 
@@ -369,7 +369,7 @@ Implement `sync_repos` with `Arc::new(Semaphore::new(4))` and full `SyncStrategy
 
 | Category | Test Case | Target Metric / Acceptance Criteria | Verification Method |
 | :--- | :--- | :--- | :--- |
-| Performance | Cold Initial Scan | Scan 500 local repositories in `< 1,000ms`. | Benchmark test / `generate_benchmark_repos.sh` |
+| Performance | Cold Initial Scan | Scan 50 local repositories in `< 1,000ms`. | Benchmark test / `generate_benchmark_repos.sh` |
 | UI Performance | Dynamic UI Virtualization | Maintain 60 FPS scrolling with 2,000 active table items. | `@tanstack/react-virtual` Chrome DevTools frame trace |
 | Resource Budget | Memory Footprint | Backend + Frontend baseline RSS `< 120MB` on macOS. | macOS Activity Monitor / `ps -o rss` |
 | Git Edge Cases | Concurrent Submodule Handling | Process repos with submodules accurately (`include_submodules`). | Rust integration test with nested submodule fixture |

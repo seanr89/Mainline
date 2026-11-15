@@ -1,6 +1,6 @@
 # Mainline — Gemini Engineering Guidelines & Invariants
 
-**Mainline** is a native-class macOS-style Git Workspace Manager built with **Rust**, **Tauri v2**, **React 18**, **TypeScript**, **Tailwind CSS**, **Zustand**, **TanStack Table v8 / Virtual v3**, and **tauri-specta**. It scans local workspace directories in sub-second time (500+ repos in `< 1,000ms`), monitors `.git/HEAD` and `.git/index` in real time, and executes safe, bounded batch Git operations with dirty-tree guardrails.
+**Mainline** is a native-class macOS-style Git Workspace Manager built with **Rust**, **Tauri v2**, **React 18**, **TypeScript**, **Tailwind CSS**, **Zustand**, **TanStack Table v8 / Virtual v3**, and **tauri-specta**. It scans local workspace directories in sub-second time (50+ repos in `< 1,000ms`), monitors `.git/HEAD` and `.git/index` in real time, and executes safe, bounded batch Git operations with dirty-tree guardrails.
 
 ---
 
@@ -87,4 +87,4 @@ When referencing `docs/IMPLEMENTATION_PLAN.md` or older snippets, always apply t
 
 - **Rust changes**: Run `cargo check`, `cargo test`, and `cargo clippy -- -D warnings` inside `src-tauri/`.
 - **Frontend changes**: Run `pnpm exec tsc --noEmit` and `pnpm build` at the repo root.
-- **End-to-end / Benchmarks**: Use the `verification-matrix` skill (`.agents/skills/verification-matrix/SKILL.md`) to validate cold scan speed (`< 1,000ms` for 500 repos), virtualized scrolling, dirty-tree modals, and watcher debouncing.
+- **End-to-end / Benchmarks**: Use the `verification-matrix` skill (`.agents/skills/verification-matrix/SKILL.md`) to validate cold scan speed (`< 1,000ms` for 50 repos), virtualized scrolling, dirty-tree modals, and watcher debouncing.

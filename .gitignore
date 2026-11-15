@@ -1,0 +1,14 @@
+# Dependencies & Build Outputs
+node_modules/
+dist/
+dist-ssr/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Logs & OS
+*.log
+.DS_Store
+.env
+.env.*
