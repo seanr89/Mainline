@@ -1,0 +1,12 @@
+{
+  "name": "mainline-dev-kit",
+  "displayName": "Mainline Dev Kit",
+  "version": "0.1.0",
+  "description": "Engineering rules, specialist agents, and phased build/verification skills for Mainline (Rust + Tauri v2 + React 18 Git Workspace Manager).",
+  "author": "Mainline Engineering",
+  "suggestedPrompts": [
+    "Implement Phase 1 of Mainline's Rust scanner and Git inspection engine with unit tests",
+    "Set up Phase 2 Tauri v2 IPC commands, WatcherState, and tauri-specta TypeScript bindings",
+    "Build the Phase 3 & 4 macOS virtualized React table UI and DirtyConfirmModal guardrails"
+  ]
+}
