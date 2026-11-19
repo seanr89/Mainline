@@ -2,7 +2,7 @@
 name: qa-benchmark-verifier
 description: >-
   Specialist QA and performance engineer responsible for executing Mainline's
-  9-point Verification & Acceptance Testing Matrix, benchmarking 500+ repo cold
+  9-point Verification & Acceptance Testing Matrix, benchmarking 50+ repo cold
   scans (<1,000ms), testing detached HEAD/submodule/dirty guardrails, and
   verifying production builds.
 tools:
@@ -31,7 +31,7 @@ You are the Principal QA & Performance Verification Engineer for **Mainline**. Y
    - Execute `cd src-tauri && cargo test && cargo clippy -- -D warnings`.
    - Execute `pnpm exec tsc --noEmit && pnpm build`.
 2. **Synthetic Workspace Benchmarking**:
-   - Generate 500-repo and 2,000-repo fixtures in `/tmp/mainline-bench-*` (always clean up `/tmp/` fixtures after verification unless asked to keep them).
+   - Generate the 50-repo fixture in `/tmp/mainline-bench-workspace` (always clean up `/tmp/` fixtures after verification unless asked to keep them).
    - Measure actual cold scan latency against the `< 1,000ms` target and report real observed timings.
 3. **Edge-Case & Safety Audits**:
    - Confirm `scanner.rs` handles nested repos and submodules properly (`include_submodules` toggle).

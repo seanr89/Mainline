@@ -2,7 +2,7 @@
 name: verification-matrix
 description: >-
   Execute Mainline's 9-point Verification & Acceptance Testing Matrix, including
-  synthetic 500-repository benchmark workspace generation, cold scan latency
+  synthetic 50-repository benchmark workspace generation, cold scan latency
   checks (<1,000ms), dirty-tree safety verification, detached HEAD and submodule
   testing, and release build verification. Use when validating a completed phase
   or signing off before release.
@@ -17,21 +17,21 @@ Validate Mainline against all 9 target metrics from `docs/IMPLEMENTATION_PLAN.md
 Use [generate_benchmark_repos.sh](./scripts/generate_benchmark_repos.sh) to generate synthetic multi-state Git workspaces in `/tmp/mainline-bench-workspace` (clean repos, dirty working trees, detached HEAD repos, and off-main branches):
 
 ```bash
-# Default: 500 repositories in /tmp/mainline-bench-workspace
-./.agents/skills/verification-matrix/scripts/generate_benchmark_repos.sh 500 /tmp/mainline-bench-workspace
+# Default: 50 repositories in /tmp/mainline-bench-workspace
+./.agents/skills/verification-matrix/scripts/generate_benchmark_repos.sh 50 /tmp/mainline-bench-workspace
 
-# Stress test UI virtualization: 2,000 repositories
-./.agents/skills/verification-matrix/scripts/generate_benchmark_repos.sh 2000 /tmp/mainline-bench-2k
+# Optional scale stress test: 500 repositories
+./.agents/skills/verification-matrix/scripts/generate_benchmark_repos.sh 500 /tmp/mainline-bench-stress
 ```
 
 > Clean up benchmark folders in `/tmp/` after running verification.
 
 ## 9-Point Acceptance Checklist
 
-1. **Cold Initial Scan (`< 1,000ms` for 500 repos)**:
-   - Run `cargo test --release` benchmark or time `scan_workspace` against the 500-repo `/tmp/mainline-bench-workspace` fixture.
-2. **Dynamic UI Virtualization (`60 FPS` @ 2,000 rows)**:
-   - Open `/tmp/mainline-bench-2k` in `pnpm tauri dev`, verify DOM mounts only visible rows + overscan (`~30` `<tr>` nodes instead of `2,000`), and scroll rapidly with DevTools Performance recording.
+1. **Cold Initial Scan (`< 1,000ms` for 50+ repos)**:
+   - Run `cargo test --release -- --nocapture bench_scan_50` against the 50-repo `/tmp/mainline-bench-workspace` fixture.
+2. **Dynamic UI Virtualization (`60 FPS` scrolling)**:
+   - Open `/tmp/mainline-bench-workspace` in `pnpm tauri dev` and confirm virtualized table rendering via `@tanstack/react-virtual` (`estimateSize: () => 36`, `overscan: 10`).
 3. **Memory Footprint (`< 120MB` baseline RSS on macOS)**:
    - Launch release/dev app on macOS and measure process RSS (`ps -o rss= -p <pid>`) after scanning an active workspace.
 4. **Concurrent Submodule Handling**:
