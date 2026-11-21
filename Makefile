@@ -5,8 +5,11 @@ PNPM             := pnpm
 CARGO            := cargo
 
 # Set location for staged release executable / app bundle (overrideable: make release RELEASE_DIR=/path/to/dir)
-RELEASE_DIR      ?= $(CURDIR)/release
-INSTALL_DIR      ?= $(HOME)/Applications
+RELEASE_DIR        ?= $(CURDIR)/release
+INSTALL_DIR        ?= $(HOME)/Applications
+RELAUNCH           ?= 0
+INSTALL_DIR_ORIGIN := $(origin INSTALL_DIR)
+PLIST_BUDDY        := /usr/libexec/PlistBuddy
 
 UNAME_S          := $(shell uname -s)
 TARGET_RELEASE   := $(TAURI_DIR)/target/release
@@ -22,7 +25,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps build build-frontend build-backend dev test check release run run-bin install-app clean
+.PHONY: help deps build build-frontend build-backend dev test check release run run-bin install-app update-app clean
 
 help: ## Show available Makefile targets and configuration
 	@echo "Mainline — Build, Release & Execution Makefile"
@@ -30,9 +33,10 @@ help: ## Show available Makefile targets and configuration
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "Configurable paths:"
+	@echo "Configurable paths & options:"
 	@echo "  RELEASE_DIR = $(RELEASE_DIR)"
 	@echo "  INSTALL_DIR = $(INSTALL_DIR)"
+	@echo "  RELAUNCH    = $(RELAUNCH)"
 
 deps: ## Install frontend dependencies via pnpm
 	$(PNPM) install
@@ -100,10 +104,59 @@ ifeq ($(UNAME_S),Darwin)
 	fi
 	@mkdir -p "$(INSTALL_DIR)"
 	@rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
-	@cp -R "$(RELEASE_DIR)/$(APP_NAME).app" "$(INSTALL_DIR)/$(APP_NAME).app"
-	@echo "Installed $(INSTALL_DIR)/$(APP_NAME).app"
+	@ditto "$(RELEASE_DIR)/$(APP_NAME).app" "$(INSTALL_DIR)/$(APP_NAME).app"
+	@INSTALLED_VER=$$("$(PLIST_BUDDY)" -c "Print :CFBundleShortVersionString" "$(INSTALL_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || echo "unknown"); \
+	echo "Installed $(INSTALL_DIR)/$(APP_NAME).app (v$$INSTALLED_VER)"
 else
 	@echo "install-app is macOS-only; use 'make release RELEASE_DIR=/usr/local/bin' on Linux."
+endif
+
+update-app: ## Rebuild release and update an installed Mainline.app in ~/Applications or /Applications
+ifeq ($(UNAME_S),Darwin)
+	$(MAKE) release
+	@if [ "$(INSTALL_DIR_ORIGIN)" = "command line" ] || [ "$(INSTALL_DIR_ORIGIN)" = "environment" ] || [ "$(INSTALL_DIR_ORIGIN)" = "environment override" ]; then \
+		TARGET_DIR="$(INSTALL_DIR)"; \
+	elif [ -d "$(HOME)/Applications/$(APP_NAME).app" ]; then \
+		TARGET_DIR="$(HOME)/Applications"; \
+	elif [ -d "/Applications/$(APP_NAME).app" ]; then \
+		TARGET_DIR="/Applications"; \
+	else \
+		TARGET_DIR="$(INSTALL_DIR)"; \
+	fi; \
+	TARGET_APP="$$TARGET_DIR/$(APP_NAME).app"; \
+	if [ -f "$$TARGET_APP/Contents/Info.plist" ]; then \
+		OLD_VER=$$("$(PLIST_BUDDY)" -c "Print :CFBundleShortVersionString" "$$TARGET_APP/Contents/Info.plist" 2>/dev/null || echo "unknown"); \
+	else \
+		OLD_VER="none (fresh install)"; \
+	fi; \
+	NEW_VER=$$("$(PLIST_BUDDY)" -c "Print :CFBundleShortVersionString" "$(RELEASE_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || echo "unknown"); \
+	if pgrep -x "$(APP_NAME)" >/dev/null 2>&1 || pgrep -x "$(BIN_NAME)" >/dev/null 2>&1; then \
+		echo "Stopping running $(APP_NAME) instance..."; \
+		osascript -e 'tell application "$(APP_NAME)" to quit' >/dev/null 2>&1 || true; \
+		WAIT_COUNT=0; \
+		while (pgrep -x "$(APP_NAME)" >/dev/null 2>&1 || pgrep -x "$(BIN_NAME)" >/dev/null 2>&1) && [ "$$WAIT_COUNT" -lt 6 ]; do \
+			sleep 0.5; \
+			WAIT_COUNT=$$((WAIT_COUNT + 1)); \
+		done; \
+		if pgrep -x "$(APP_NAME)" >/dev/null 2>&1 || pgrep -x "$(BIN_NAME)" >/dev/null 2>&1; then \
+			pkill -x "$(APP_NAME)" 2>/dev/null || pkill -x "$(BIN_NAME)" 2>/dev/null || true; \
+			sleep 0.5; \
+		fi; \
+	fi; \
+	mkdir -p "$$TARGET_DIR" 2>/dev/null || true; \
+	if [ ! -d "$$TARGET_DIR" ] || [ ! -w "$$TARGET_DIR" ] || { [ -e "$$TARGET_APP" ] && [ ! -w "$$TARGET_APP" ]; }; then \
+		echo "Error: $$TARGET_DIR is not writable. Re-run with elevated permissions or override INSTALL_DIR."; \
+		exit 1; \
+	fi; \
+	rm -rf "$$TARGET_APP"; \
+	ditto "$(RELEASE_DIR)/$(APP_NAME).app" "$$TARGET_APP"; \
+	echo "Updated $$TARGET_APP: $$OLD_VER -> $$NEW_VER"; \
+	if [ "$(RELAUNCH)" = "1" ] || [ "$(RELAUNCH)" = "true" ]; then \
+		echo "Launching $$TARGET_APP ..."; \
+		open "$$TARGET_APP"; \
+	fi
+else
+	@echo "update-app is macOS-only; use 'make release RELEASE_DIR=/usr/local/bin' on Linux."
 endif
 
 clean: ## Remove frontend dist, staged release artifacts, and Rust target outputs
