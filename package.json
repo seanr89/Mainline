@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "version:bump": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.15.0",

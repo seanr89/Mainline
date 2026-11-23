@@ -52,6 +52,9 @@ async syncRepos(targets: RepoSyncTarget[], strategy: SyncStrategy) : Promise<Res
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async getAppVersionInfo() : Promise<AppVersionInfo> {
+    return await TAURI_INVOKE("get_app_version_info");
 }
 }
 
@@ -66,6 +69,9 @@ async syncRepos(targets: RepoSyncTarget[], strategy: SyncStrategy) : Promise<Res
 /** user-defined types **/
 
 export type AppError = { type: "Io"; details: string } | { type: "GitExecution"; details: { code: number; message: string } } | { type: "ParseError"; details: string } | { type: "InvalidPath"; details: string }
+export type AppVersionInfo = { name: string; version: string; raw_changelog: string; releases: ChangelogRelease[] }
+export type ChangelogRelease = { version: string; date: string; sections: ChangelogSection[] }
+export type ChangelogSection = { category: string; items: string[] }
 export type GitProvider = "GitHub" | "GitLab" | "Bitbucket" | { Custom: string }
 export type LogPayload = { repo_path: string; line: string; is_stderr: boolean }
 export type RepoStatus = { name: string; relative_path: string; absolute_path: string; current_branch: string; default_branch: string; ahead_count: number; behind_count: number; is_dirty: boolean; stashed_count: number; remote_url: string | null; provider: GitProvider; is_detached: boolean; last_commit_title: string; last_commit_hash: string; last_commit_timestamp: number }

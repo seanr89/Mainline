@@ -6,6 +6,8 @@ import { Sidebar } from './components/Sidebar';
 import { RepoTable } from './components/RepoTable';
 import { ConsoleDrawer } from './components/ConsoleDrawer';
 import { DirtyConfirmModal } from './components/DirtyConfirmModal';
+import { AboutModal } from './components/AboutModal';
+import { ChangelogModal } from './components/ChangelogModal';
 import { useWorkspaceStore } from './store/workspaceStore';
 
 export default function App() {
@@ -96,6 +98,9 @@ export default function App() {
         onSkipDirty={() => void skipDirtyAndContinue()}
         onCancel={cancelDirtyModal}
       />
+
+      <AboutModal />
+      <ChangelogModal />
     </div>
   );
 }

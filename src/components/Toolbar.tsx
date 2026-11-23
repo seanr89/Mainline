@@ -9,6 +9,7 @@ import {
   GitMerge,
   ArrowDownToLine,
   GitFork,
+  Info,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
@@ -29,6 +30,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ searchInputRef }) => {
     isSyncing,
     isConsoleOpen,
     setConsoleOpen,
+    setAboutOpen,
     includeSubmodules,
     setIncludeSubmodules,
     requestBatchAction,
@@ -144,6 +146,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({ searchInputRef }) => {
           }`}
         >
           <Terminal className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAboutOpen(true)}
+          title="About Mainline & What's New"
+          aria-label="About Mainline"
+          className="p-1.5 rounded-md border bg-white border-gray-200 text-gray-600 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 text-xs transition-colors"
+        >
+          <Info className="w-3.5 h-3.5" />
         </button>
       </div>
     </header>

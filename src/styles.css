@@ -33,3 +33,14 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(120, 120, 128, 0.55);
 }
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+}
