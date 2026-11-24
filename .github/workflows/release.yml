@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_call:
+    inputs:
+      tag_ref:
+        description: 'Git tag ref to checkout and release (e.g. v0.2.0)'
+        required: false
+        type: string
 
 jobs:
   release:
@@ -17,6 +23,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_ref || github.ref }}
 
       - name: Setup Node.js Environment
         uses: actions/setup-node@v4

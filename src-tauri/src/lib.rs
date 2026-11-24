@@ -19,6 +19,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::list_branches,
             commands::switch_branch,
             commands::sync_repos,
+            commands::get_app_version_info,
         ])
         .typ::<models::LogPayload>()
 }

@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { LazyStore } from '@tauri-apps/plugin-store';
-import { AppError, RepoStatus, RepoSyncTarget, SyncStrategy, commands } from '../bindings';
+import {
+  AppError,
+  AppVersionInfo,
+  RepoStatus,
+  RepoSyncTarget,
+  SyncStrategy,
+  commands,
+} from '../bindings';
 
 const settingsStore = new LazyStore('settings.json');
 
@@ -38,11 +45,15 @@ interface WorkspaceState {
   isScanning: boolean;
   isSyncing: boolean;
   isConsoleOpen: boolean;
+  isAboutOpen: boolean;
+  isChangelogOpen: boolean;
+  appVersionInfo: AppVersionInfo | null;
   lastScanDurationMs: number | null;
   lastError: string | null;
   dirtyModal: PendingSyncModal | null;
 
   initStore: () => Promise<void>;
+  loadAppVersionInfo: () => Promise<void>;
   addWorkspaceRoot: (path: string) => Promise<void>;
   removeWorkspaceRoot: (path: string) => Promise<void>;
   setActiveRoot: (path: string) => void;
@@ -60,6 +71,8 @@ interface WorkspaceState {
   setFilter: (filter: FilterType) => void;
   setSearchQuery: (query: string) => void;
   setConsoleOpen: (open: boolean) => void;
+  setAboutOpen: (open: boolean) => void;
+  setChangelogOpen: (open: boolean) => void;
   clearError: () => void;
   requestBatchAction: (mode: 'sync' | 'reset-to-main' | 'fetch') => Promise<void>;
   requestBranchCheckout: (repo: RepoStatus, targetBranch: string) => Promise<void>;
@@ -80,11 +93,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isScanning: false,
   isSyncing: false,
   isConsoleOpen: false,
+  isAboutOpen: false,
+  isChangelogOpen: false,
+  appVersionInfo: null,
   lastScanDurationMs: null,
   lastError: null,
   dirtyModal: null,
 
   initStore: async () => {
+    void get().loadAppVersionInfo();
     try {
       const savedRoots = await settingsStore.get<string[]>('roots');
       const savedSubmodules = await settingsStore.get<boolean>('includeSubmodules');
@@ -93,6 +110,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         activeRoot: savedRoots && savedRoots.length > 0 ? savedRoots[0] : null,
         includeSubmodules: savedSubmodules ?? false,
       });
+    } catch (e) {
+      set({ lastError: String(e) });
+    }
+  },
+
+  loadAppVersionInfo: async () => {
+    try {
+      const info = await commands.getAppVersionInfo();
+      set({ appVersionInfo: info });
     } catch (e) {
       set({ lastError: String(e) });
     }
@@ -228,6 +254,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
 
   setConsoleOpen: (open) => set({ isConsoleOpen: open }),
+
+  setAboutOpen: (open) => set({ isAboutOpen: open }),
+
+  setChangelogOpen: (open) => set({ isChangelogOpen: open }),
 
   clearError: () => set({ lastError: null }),
 

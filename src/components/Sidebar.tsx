@@ -1,5 +1,13 @@
 import React from 'react';
-import { Folder, GitBranch, AlertCircle, ArrowDownCircle, Layers, X } from 'lucide-react';
+import {
+  Folder,
+  GitBranch,
+  AlertCircle,
+  ArrowDownCircle,
+  Layers,
+  X,
+  ScrollText,
+} from 'lucide-react';
 import { useWorkspaceStore, FilterType } from '../store/workspaceStore';
 
 export const Sidebar: React.FC = () => {
@@ -13,6 +21,9 @@ export const Sidebar: React.FC = () => {
     repositories,
     selectedRepoPaths,
     lastScanDurationMs,
+    appVersionInfo,
+    setAboutOpen,
+    setChangelogOpen,
   } = useWorkspaceStore();
 
   const counts = React.useMemo(() => {
@@ -118,11 +129,32 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      <div className="px-3 py-2 border-t border-gray-200/70 dark:border-gray-800/80 text-[11px] text-gray-400 flex items-center justify-between">
-        <span>{selectedRepoPaths.size} selected</span>
-        {lastScanDurationMs !== null && (
-          <span className="tabular-nums">{lastScanDurationMs}ms</span>
-        )}
+      <div className="px-3 py-2 border-t border-gray-200/70 dark:border-gray-800/80 space-y-1.5">
+        <div className="text-[11px] text-gray-400 flex items-center justify-between">
+          <span>{selectedRepoPaths.size} selected</span>
+          {lastScanDurationMs !== null && (
+            <span className="tabular-nums">{lastScanDurationMs}ms</span>
+          )}
+        </div>
+        <div className="flex items-center justify-between pt-1.5 border-t border-gray-200/50 dark:border-gray-800/60">
+          <button
+            type="button"
+            onClick={() => setAboutOpen(true)}
+            title="About Mainline & What's New"
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-medium text-gray-600 dark:text-gray-300 bg-gray-200/70 dark:bg-gray-800 hover:bg-gray-300/70 dark:hover:bg-gray-700 transition-colors"
+          >
+            v{appVersionInfo?.version ?? '0.1.0'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setChangelogOpen(true)}
+            title="View full Changelog"
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-gray-800 transition-colors"
+          >
+            <ScrollText className="w-3 h-3 mr-1" />
+            Changelog
+          </button>
+        </div>
       </div>
     </aside>
   );

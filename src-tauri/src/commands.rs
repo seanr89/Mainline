@@ -1,6 +1,9 @@
 use crate::error::AppError;
 use crate::git::{inspect_repo, inspect_workspace, list_repo_branches, run_git};
-use crate::models::{LogPayload, RepoStatus, RepoSyncTarget, SyncStrategy};
+use crate::models::{
+    AppVersionInfo, ChangelogRelease, ChangelogSection, LogPayload, RepoStatus, RepoSyncTarget,
+    SyncStrategy,
+};
 use crate::scanner::scan_for_repos;
 use crate::watcher::{start_workspace_watcher, WatcherState};
 use std::path::Path;
@@ -8,6 +11,111 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+
+const BUNDLED_CHANGELOG: &str = include_str!("../../CHANGELOG.md");
+
+fn flush_section(
+    current_release: &mut Option<ChangelogRelease>,
+    current_section: &mut Option<ChangelogSection>,
+) {
+    if let (Some(release), Some(section)) = (current_release.as_mut(), current_section.take()) {
+        if !section.items.is_empty() {
+            release.sections.push(section);
+        }
+    }
+}
+
+fn parse_release_header(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("## ")?.trim();
+    if let Some((ver_part, date_part)) = rest.split_once(" - ") {
+        let version = ver_part
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .trim();
+        let date = date_part.trim();
+        if !version.is_empty() {
+            return Some((version.to_string(), date.to_string()));
+        }
+    } else {
+        let version = rest.trim_start_matches('[').trim_end_matches(']').trim();
+        if !version.is_empty() {
+            return Some((version.to_string(), String::new()));
+        }
+    }
+    None
+}
+
+pub fn parse_changelog(markdown: &str) -> Vec<ChangelogRelease> {
+    let mut releases = Vec::new();
+    let mut current_release: Option<ChangelogRelease> = None;
+    let mut current_section: Option<ChangelogSection> = None;
+
+    for raw_line in markdown.lines() {
+        let trimmed = raw_line.trim();
+        if let Some((version, date)) = parse_release_header(trimmed) {
+            flush_section(&mut current_release, &mut current_section);
+            if let Some(release) = current_release.take() {
+                releases.push(release);
+            }
+            current_release = Some(ChangelogRelease {
+                version,
+                date,
+                sections: Vec::new(),
+            });
+            continue;
+        }
+
+        if let Some(category) = trimmed.strip_prefix("### ") {
+            if current_release.is_some() {
+                flush_section(&mut current_release, &mut current_section);
+                current_section = Some(ChangelogSection {
+                    category: category.trim().to_string(),
+                    items: Vec::new(),
+                });
+            }
+            continue;
+        }
+
+        if let Some(item) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+        {
+            let item_text = item.trim();
+            if item_text.is_empty() || current_release.is_none() {
+                continue;
+            }
+            if current_section.is_none() {
+                current_section = Some(ChangelogSection {
+                    category: "Changes".to_string(),
+                    items: Vec::new(),
+                });
+            }
+            if let Some(section) = current_section.as_mut() {
+                section.items.push(item_text.to_string());
+            }
+        }
+    }
+
+    flush_section(&mut current_release, &mut current_section);
+    if let Some(release) = current_release {
+        releases.push(release);
+    }
+
+    releases
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_app_version_info() -> AppVersionInfo {
+    let releases = parse_changelog(BUNDLED_CHANGELOG);
+    AppVersionInfo {
+        name: "Mainline".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        raw_changelog: BUNDLED_CHANGELOG.to_string(),
+        releases,
+    }
+}
 
 fn emit_log(app: &AppHandle, repo_path: &str, line: impl Into<String>, is_stderr: bool) {
     let text = line.into();
@@ -336,5 +444,81 @@ mod tests {
         let status = inspect_repo(&clone, &clone).await.unwrap();
         assert_eq!(status.current_branch, "main");
         assert!(!status.is_dirty);
+    }
+
+    #[test]
+    fn test_parse_changelog_parses_multiple_releases() {
+        let sample = "\
+# Changelog
+
+All notable changes to Mainline.
+
+## [0.2.0] - 2026-11-23
+
+### Features
+- Add automated versioning
+- Add About screen
+
+### Bug Fixes
+- Fix watcher debounce
+
+## [0.1.0] - 2026-11-21
+
+### Features
+- Initial release
+";
+
+        let releases = parse_changelog(sample);
+        assert_eq!(releases.len(), 2);
+
+        assert_eq!(releases[0].version, "0.2.0");
+        assert_eq!(releases[0].date, "2026-11-23");
+        assert_eq!(releases[0].sections.len(), 2);
+        assert_eq!(releases[0].sections[0].category, "Features");
+        assert_eq!(
+            releases[0].sections[0].items,
+            vec!["Add automated versioning", "Add About screen"]
+        );
+        assert_eq!(releases[0].sections[1].category, "Bug Fixes");
+        assert_eq!(
+            releases[0].sections[1].items,
+            vec!["Fix watcher debounce"]
+        );
+
+        assert_eq!(releases[1].version, "0.1.0");
+        assert_eq!(releases[1].date, "2026-11-21");
+        assert_eq!(releases[1].sections.len(), 1);
+        assert_eq!(releases[1].sections[0].items, vec!["Initial release"]);
+    }
+
+    #[test]
+    fn test_get_app_version_info_and_manifest_sync() {
+        let info = get_app_version_info();
+        assert_eq!(info.name, "Mainline");
+        assert!(!info.version.is_empty());
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
+        assert!(!info.raw_changelog.is_empty());
+        assert!(!info.releases.is_empty());
+
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pkg_json: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(manifest_dir.join("../package.json")).unwrap(),
+        )
+        .unwrap();
+        let tauri_conf: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(manifest_dir.join("tauri.conf.json")).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            pkg_json["version"].as_str().unwrap(),
+            info.version,
+            "package.json version must stay synchronized with Cargo.toml"
+        );
+        assert_eq!(
+            tauri_conf["version"].as_str().unwrap(),
+            info.version,
+            "tauri.conf.json version must stay synchronized with Cargo.toml"
+        );
     }
 }

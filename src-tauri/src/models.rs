@@ -49,3 +49,24 @@ pub struct LogPayload {
     pub line: String,
     pub is_stderr: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ChangelogSection {
+    pub category: String,
+    pub items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct ChangelogRelease {
+    pub version: String,
+    pub date: String,
+    pub sections: Vec<ChangelogSection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+pub struct AppVersionInfo {
+    pub name: String,
+    pub version: String,
+    pub raw_changelog: String,
+    pub releases: Vec<ChangelogRelease>,
+}
