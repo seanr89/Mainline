@@ -1,6 +1,6 @@
 [package]
 name = "git-workspace-manager"
-version = "0.1.0"
+version = "0.2.0"
 description = "Mainline — High-performance macOS-style Git Workspace Manager"
 authors = ["Mainline Engineering"]
 edition = "2021"

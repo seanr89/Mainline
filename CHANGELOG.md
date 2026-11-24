@@ -2,6 +2,11 @@
 
 All notable changes to **Mainline** will be documented in this file.
 
+## [0.2.0] - 2026-11-24
+
+### Features
+- add automated versioning on main merges, bundled changelog, and About modal (#3) (bd34617)
+
 ## [0.1.0] - 2026-11-21
 
 ### Features
