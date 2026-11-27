@@ -1,5 +1,9 @@
 use crate::error::AppError;
-use crate::models::{GitProvider, RepoStatus};
+use crate::models::{
+    BranchPruneOutcome, BranchPruneTarget, DefunctBranchInfo, GitProvider, LogPayload,
+    RepoDefunctBranches, RepoScanTarget, RepoStatus,
+};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::process::Command as AsyncCommand;
@@ -12,6 +16,7 @@ pub async fn run_git(repo_path: &Path, args: &[&str]) -> Result<String, AppError
         .args(args)
         .current_dir(repo_path)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_MESSAGES", "C")
         .output()
         .await
         .map_err(|e| AppError::Io(e.to_string()))?;
@@ -281,6 +286,292 @@ pub async fn inspect_workspace(paths: Vec<PathBuf>, root: &Path) -> Vec<RepoStat
     results
 }
 
+/// Inspect a repository for local branches whose remote tracking ref is `[gone]`.
+/// Optionally runs `git fetch --all --prune` first; fetch failures are recorded in
+/// `fetch_error` without aborting inspection of locally known `[gone]` refs.
+pub async fn inspect_repo_defunct_branches(
+    target: &RepoScanTarget,
+    fetch_first: bool,
+) -> (RepoDefunctBranches, Vec<LogPayload>) {
+    let repo_path = Path::new(&target.absolute_path);
+    let mut logs = Vec::new();
+    let mut fetch_error: Option<String> = None;
+
+    if fetch_first {
+        match run_git(repo_path, &["fetch", "--all", "--prune"]).await {
+            Ok(out) => {
+                let line = if out.is_empty() {
+                    "Fetched & pruned remotes (--all --prune)".to_string()
+                } else {
+                    out
+                };
+                logs.push(LogPayload {
+                    repo_path: target.absolute_path.clone(),
+                    line,
+                    is_stderr: false,
+                });
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                logs.push(LogPayload {
+                    repo_path: target.absolute_path.clone(),
+                    line: msg.clone(),
+                    is_stderr: true,
+                });
+                fetch_error = Some(msg);
+            }
+        }
+    }
+
+    let (_, mut default_branch) = resolve_remote_and_default_branch(repo_path).await;
+    if default_branch.is_empty() && !target.default_branch.is_empty() {
+        default_branch = target.default_branch.clone();
+    }
+
+    let current_branch = run_git(repo_path, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .await
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "HEAD".to_string());
+
+    if default_branch == "main" && current_branch == "master" {
+        default_branch = "master".to_string();
+    }
+
+    let origin_ref = format!("refs/remotes/origin/{default_branch}");
+    let local_ref = format!("refs/heads/{default_branch}");
+    let merge_base_ref = if run_git(repo_path, &["rev-parse", "--verify", "--quiet", &origin_ref])
+        .await
+        .is_ok()
+    {
+        Some(origin_ref)
+    } else if run_git(repo_path, &["rev-parse", "--verify", "--quiet", &local_ref])
+        .await
+        .is_ok()
+    {
+        Some(local_ref)
+    } else if run_git(repo_path, &["rev-parse", "--verify", "--quiet", "HEAD"])
+        .await
+        .is_ok()
+    {
+        Some("HEAD".to_string())
+    } else {
+        None
+    };
+
+    let merged_set: HashSet<String> = match merge_base_ref {
+        Some(base_ref) => run_git(
+            repo_path,
+            &["branch", "--merged", &base_ref, "--format=%(refname:short)"],
+        )
+        .await
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect(),
+        None => HashSet::new(),
+    };
+
+    let mut branches = Vec::new();
+    match run_git(
+        repo_path,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%1f%(upstream:short)%1f%(upstream:track)%1f%(HEAD)%1f%(objectname:short)%1f%(committerdate:unix)%1f%(contents:subject)",
+            "refs/heads",
+        ],
+    )
+    .await
+    {
+        Ok(raw) => {
+            for line in raw.lines() {
+                let parts: Vec<&str> = line.splitn(7, '\x1f').collect();
+                if parts.len() != 7 {
+                    continue;
+                }
+                let name = parts[0].trim();
+                let upstream = parts[1].trim();
+                let track = parts[2].trim();
+                let head_marker = parts[3].trim();
+                let last_commit_hash = parts[4].trim();
+                let last_commit_timestamp = parts[5].trim().parse::<f64>().unwrap_or(0.0);
+                let last_commit_title = parts[6].trim();
+
+                if name.is_empty() || !track.contains("[gone]") {
+                    continue;
+                }
+
+                let is_current = head_marker == "*" || current_branch == name;
+                let is_default = name == default_branch;
+                let can_delete = !is_current && !is_default;
+                let is_merged = merged_set.contains(name);
+
+                branches.push(DefunctBranchInfo {
+                    name: name.to_string(),
+                    upstream: upstream.to_string(),
+                    last_commit_hash: last_commit_hash.to_string(),
+                    last_commit_title: last_commit_title.to_string(),
+                    last_commit_timestamp,
+                    is_merged,
+                    is_current,
+                    is_default,
+                    can_delete,
+                });
+            }
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            logs.push(LogPayload {
+                repo_path: target.absolute_path.clone(),
+                line: msg.clone(),
+                is_stderr: true,
+            });
+            if fetch_error.is_none() {
+                fetch_error = Some(msg);
+            }
+        }
+    }
+
+    branches.sort_by(|a, b| {
+        b.can_delete
+            .cmp(&a.can_delete)
+            .then_with(|| b.is_merged.cmp(&a.is_merged))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    (
+        RepoDefunctBranches {
+            repo_name: target.repo_name.clone(),
+            relative_path: target.relative_path.clone(),
+            absolute_path: target.absolute_path.clone(),
+            current_branch,
+            default_branch,
+            branches,
+            fetch_error,
+        },
+        logs,
+    )
+}
+
+/// Safely delete selected local branches in a single repository sequentially
+/// (avoiding `.git/packed-refs.lock` contention), guarding against deleting the
+/// currently checked-out branch, default branch, or invalid branch names.
+pub async fn prune_repo_branches(
+    repo_path: &Path,
+    targets: &[BranchPruneTarget],
+) -> (Vec<BranchPruneOutcome>, Vec<LogPayload>) {
+    let repo_str = repo_path.to_string_lossy().to_string();
+    let mut outcomes = Vec::with_capacity(targets.len());
+    let mut logs = Vec::new();
+
+    let live_current_branch = run_git(repo_path, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .await
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let (_, mut live_default_branch) = resolve_remote_and_default_branch(repo_path).await;
+    if live_default_branch == "main" && live_current_branch.as_deref() == Some("master") {
+        live_default_branch = "master".to_string();
+    }
+
+    for target in targets {
+        let branch = target.branch_name.trim();
+        if branch.is_empty() || branch.starts_with('-') {
+            let msg = format!("Refused invalid branch name '{}'", target.branch_name);
+            logs.push(LogPayload {
+                repo_path: repo_str.clone(),
+                line: msg.clone(),
+                is_stderr: true,
+            });
+            outcomes.push(BranchPruneOutcome {
+                repo_path: repo_str.clone(),
+                branch_name: target.branch_name.clone(),
+                deleted: false,
+                forced: target.force,
+                error: Some(msg),
+            });
+            continue;
+        }
+
+        if live_current_branch.as_deref() == Some(branch) {
+            let msg = format!("Refused to delete checked-out branch '{}'", branch);
+            logs.push(LogPayload {
+                repo_path: repo_str.clone(),
+                line: msg.clone(),
+                is_stderr: true,
+            });
+            outcomes.push(BranchPruneOutcome {
+                repo_path: repo_str.clone(),
+                branch_name: branch.to_string(),
+                deleted: false,
+                forced: target.force,
+                error: Some(msg),
+            });
+            continue;
+        }
+
+        if branch == live_default_branch {
+            let msg = format!("Refused to delete default branch '{}'", branch);
+            logs.push(LogPayload {
+                repo_path: repo_str.clone(),
+                line: msg.clone(),
+                is_stderr: true,
+            });
+            outcomes.push(BranchPruneOutcome {
+                repo_path: repo_str.clone(),
+                branch_name: branch.to_string(),
+                deleted: false,
+                forced: target.force,
+                error: Some(msg),
+            });
+            continue;
+        }
+
+        let flag = if target.force { "-D" } else { "-d" };
+        match run_git(repo_path, &["branch", flag, "--", branch]).await {
+            Ok(out) => {
+                let line = if out.is_empty() {
+                    format!("Deleted branch {} ({})", branch, flag)
+                } else {
+                    out
+                };
+                logs.push(LogPayload {
+                    repo_path: repo_str.clone(),
+                    line,
+                    is_stderr: false,
+                });
+                outcomes.push(BranchPruneOutcome {
+                    repo_path: repo_str.clone(),
+                    branch_name: branch.to_string(),
+                    deleted: true,
+                    forced: target.force,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                logs.push(LogPayload {
+                    repo_path: repo_str.clone(),
+                    line: msg.clone(),
+                    is_stderr: true,
+                });
+                outcomes.push(BranchPruneOutcome {
+                    repo_path: repo_str.clone(),
+                    branch_name: branch.to_string(),
+                    deleted: false,
+                    forced: target.force,
+                    error: Some(msg),
+                });
+            }
+        }
+    }
+
+    (outcomes, logs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,5 +689,192 @@ mod tests {
         );
         assert!(paths.len() >= 50, "expected >= 50 repos");
         assert_eq!(statuses.len(), paths.len());
+    }
+
+    fn git_sync(dir: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn setup_remote_with_branches() -> (TempDir, PathBuf) {
+        let temp = TempDir::new().unwrap();
+        let remote = temp.path().join("remote.git");
+        let seed = temp.path().join("seed");
+        let clone = temp.path().join("clone");
+
+        std::fs::create_dir_all(&remote).unwrap();
+        git_sync(&remote, &["init", "--bare", "-b", "main"]);
+
+        git_sync(temp.path(), &["clone", remote.to_str().unwrap(), "seed"]);
+        git_sync(&seed, &["config", "user.name", "Test"]);
+        git_sync(&seed, &["config", "user.email", "test@test.com"]);
+        {
+            let mut f = File::create(seed.join("README.md")).unwrap();
+            writeln!(f, "base").unwrap();
+        }
+        git_sync(&seed, &["add", "."]);
+        git_sync(&seed, &["commit", "-m", "initial"]);
+        git_sync(&seed, &["push", "-u", "origin", "main"]);
+
+        git_sync(temp.path(), &["clone", remote.to_str().unwrap(), "clone"]);
+        git_sync(&clone, &["config", "user.name", "Test"]);
+        git_sync(&clone, &["config", "user.email", "test@test.com"]);
+
+        // 1. feature/merged: pushed, merged into origin/main, then deleted on origin
+        git_sync(&clone, &["checkout", "-b", "feature/merged", "main"]);
+        {
+            let mut f = File::create(clone.join("merged.txt")).unwrap();
+            writeln!(f, "merged work").unwrap();
+        }
+        git_sync(&clone, &["add", "."]);
+        git_sync(&clone, &["commit", "-m", "feat: merged work"]);
+        git_sync(&clone, &["push", "-u", "origin", "feature/merged"]);
+        git_sync(&clone, &["checkout", "main"]);
+        git_sync(&clone, &["merge", "--no-ff", "feature/merged", "-m", "Merge feature/merged"]);
+        git_sync(&clone, &["push", "origin", "main"]);
+        git_sync(&clone, &["push", "origin", "--delete", "feature/merged"]);
+
+        // 2. feature/unmerged: pushed, NOT merged into main, then deleted on origin (squash-merge simulation)
+        git_sync(&clone, &["checkout", "-b", "feature/unmerged", "main"]);
+        {
+            let mut f = File::create(clone.join("unmerged.txt")).unwrap();
+            writeln!(f, "squash work").unwrap();
+        }
+        git_sync(&clone, &["add", "."]);
+        git_sync(&clone, &["commit", "-m", "feat: squash work"]);
+        git_sync(&clone, &["push", "-u", "origin", "feature/unmerged"]);
+        git_sync(&clone, &["checkout", "main"]);
+        git_sync(&clone, &["push", "origin", "--delete", "feature/unmerged"]);
+
+        // 3. feature/active: pushed and still exists on origin
+        git_sync(&clone, &["checkout", "-b", "feature/active", "main"]);
+        {
+            let mut f = File::create(clone.join("active.txt")).unwrap();
+            writeln!(f, "active work").unwrap();
+        }
+        git_sync(&clone, &["add", "."]);
+        git_sync(&clone, &["commit", "-m", "feat: active work"]);
+        git_sync(&clone, &["push", "-u", "origin", "feature/active"]);
+
+        // 4. feature/local: local-only branch with no upstream
+        git_sync(&clone, &["checkout", "-b", "feature/local", "main"]);
+        git_sync(&clone, &["checkout", "main"]);
+
+        (temp, clone)
+    }
+
+    #[tokio::test]
+    async fn test_inspect_defunct_branches_detects_gone_merged_and_unmerged() {
+        let (_temp, clone) = setup_remote_with_branches();
+        let scan_target = RepoScanTarget {
+            absolute_path: clone.to_string_lossy().to_string(),
+            repo_name: "clone".to_string(),
+            relative_path: "clone".to_string(),
+            default_branch: "main".to_string(),
+        };
+
+        let (result, _logs) = inspect_repo_defunct_branches(&scan_target, true).await;
+        assert!(result.fetch_error.is_none(), "unexpected fetch error: {:?}", result.fetch_error);
+        assert_eq!(result.branches.len(), 2, "expected 2 gone branches, got {:?}", result.branches);
+
+        let merged = result.branches.iter().find(|b| b.name == "feature/merged").unwrap();
+        assert!(merged.is_merged);
+        assert!(merged.can_delete);
+        assert!(!merged.is_current);
+        assert!(!merged.is_default);
+        assert_eq!(merged.upstream, "origin/feature/merged");
+        assert_eq!(merged.last_commit_title, "feat: merged work");
+
+        let unmerged = result.branches.iter().find(|b| b.name == "feature/unmerged").unwrap();
+        assert!(!unmerged.is_merged);
+        assert!(unmerged.can_delete);
+        assert!(!unmerged.is_current);
+        assert!(!unmerged.is_default);
+        assert_eq!(unmerged.upstream, "origin/feature/unmerged");
+    }
+
+    #[tokio::test]
+    async fn test_inspect_defunct_branches_protects_checked_out_branch() {
+        let (_temp, clone) = setup_remote_with_branches();
+        git_sync(&clone, &["checkout", "feature/merged"]);
+
+        let scan_target = RepoScanTarget {
+            absolute_path: clone.to_string_lossy().to_string(),
+            repo_name: "clone".to_string(),
+            relative_path: "clone".to_string(),
+            default_branch: "main".to_string(),
+        };
+
+        let (result, _logs) = inspect_repo_defunct_branches(&scan_target, true).await;
+        let current_gone = result.branches.iter().find(|b| b.name == "feature/merged").unwrap();
+        assert!(current_gone.is_current);
+        assert!(!current_gone.can_delete);
+    }
+
+    #[tokio::test]
+    async fn test_prune_repo_branches_safe_force_and_guardrails() {
+        let (_temp, clone) = setup_remote_with_branches();
+        let repo_str = clone.to_string_lossy().to_string();
+
+        // Check out feature/active to verify current-branch protection separately from default branch
+        git_sync(&clone, &["checkout", "feature/active"]);
+        git_sync(&clone, &["fetch", "--all", "--prune"]);
+
+        let targets = vec![
+            BranchPruneTarget {
+                repo_path: repo_str.clone(),
+                branch_name: "feature/merged".to_string(),
+                force: false,
+            },
+            BranchPruneTarget {
+                repo_path: repo_str.clone(),
+                branch_name: "feature/unmerged".to_string(),
+                force: false,
+            },
+            BranchPruneTarget {
+                repo_path: repo_str.clone(),
+                branch_name: "feature/active".to_string(),
+                force: true,
+            },
+            BranchPruneTarget {
+                repo_path: repo_str.clone(),
+                branch_name: "main".to_string(),
+                force: true,
+            },
+        ];
+
+        let (outcomes, _logs) = prune_repo_branches(&clone, &targets).await;
+        assert_eq!(outcomes.len(), 4);
+        assert!(outcomes[0].deleted, "merged branch should delete with -d");
+        assert!(!outcomes[1].deleted, "unmerged branch must fail with -d");
+        assert!(!outcomes[2].deleted, "checked-out branch must be protected even with force=true");
+        assert!(!outcomes[3].deleted, "default branch must be protected even with force=true");
+
+        // Now opt in to force deletion for the unmerged branch
+        let (force_outcomes, _logs) = prune_repo_branches(
+            &clone,
+            &[BranchPruneTarget {
+                repo_path: repo_str,
+                branch_name: "feature/unmerged".to_string(),
+                force: true,
+            }],
+        )
+        .await;
+        assert!(force_outcomes[0].deleted, "unmerged branch should delete with -D");
+
+        let remaining = list_repo_branches(&clone).await.unwrap();
+        assert!(!remaining.contains(&"feature/merged".to_string()));
+        assert!(!remaining.contains(&"feature/unmerged".to_string()));
+        assert!(remaining.contains(&"feature/active".to_string()));
+        assert!(remaining.contains(&"main".to_string()));
     }
 }

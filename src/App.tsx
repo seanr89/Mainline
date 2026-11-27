@@ -8,6 +8,7 @@ import { ConsoleDrawer } from './components/ConsoleDrawer';
 import { DirtyConfirmModal } from './components/DirtyConfirmModal';
 import { AboutModal } from './components/AboutModal';
 import { ChangelogModal } from './components/ChangelogModal';
+import { PruneBranchesModal } from './components/PruneBranchesModal';
 import { useWorkspaceStore } from './store/workspaceStore';
 
 export default function App() {
@@ -101,6 +102,7 @@ export default function App() {
 
       <AboutModal />
       <ChangelogModal />
+      <PruneBranchesModal />
     </div>
   );
 }

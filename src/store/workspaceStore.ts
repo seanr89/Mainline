@@ -3,6 +3,10 @@ import { LazyStore } from '@tauri-apps/plugin-store';
 import {
   AppError,
   AppVersionInfo,
+  BranchPruneOutcome,
+  BranchPruneTarget,
+  RepoDefunctBranches,
+  RepoScanTarget,
   RepoStatus,
   RepoSyncTarget,
   SyncStrategy,
@@ -47,6 +51,13 @@ interface WorkspaceState {
   isConsoleOpen: boolean;
   isAboutOpen: boolean;
   isChangelogOpen: boolean;
+  isPruneModalOpen: boolean;
+  isScanningDefunct: boolean;
+  isPruningBranches: boolean;
+  pruneScopeLabel: string;
+  pruneScanTargets: RepoScanTarget[];
+  defunctByRepo: RepoDefunctBranches[];
+  lastPruneOutcomes: BranchPruneOutcome[] | null;
   appVersionInfo: AppVersionInfo | null;
   lastScanDurationMs: number | null;
   lastError: string | null;
@@ -79,6 +90,10 @@ interface WorkspaceState {
   confirmDirtyAction: (strategy: SyncStrategy) => Promise<void>;
   skipDirtyAndContinue: () => Promise<void>;
   cancelDirtyModal: () => void;
+  openPruneModal: (repos?: RepoStatus[], fetchFirst?: boolean) => Promise<void>;
+  rescanDefunctBranches: (fetchFirst: boolean) => Promise<void>;
+  executePruneBranches: (targets: BranchPruneTarget[]) => Promise<BranchPruneOutcome[]>;
+  closePruneModal: () => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -95,6 +110,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isConsoleOpen: false,
   isAboutOpen: false,
   isChangelogOpen: false,
+  isPruneModalOpen: false,
+  isScanningDefunct: false,
+  isPruningBranches: false,
+  pruneScopeLabel: '',
+  pruneScanTargets: [],
+  defunctByRepo: [],
+  lastPruneOutcomes: null,
   appVersionInfo: null,
   lastScanDurationMs: null,
   lastError: null,
@@ -371,4 +393,84 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   cancelDirtyModal: () => set({ dirtyModal: null }),
+
+  openPruneModal: async (repos, fetchFirst = true) => {
+    const { repositories, selectedRepoPaths } = get();
+    const chosenRepos = repos
+      ? repos
+      : selectedRepoPaths.size > 0
+        ? repositories.filter((r) => selectedRepoPaths.has(r.absolute_path))
+        : repositories;
+
+    if (chosenRepos.length === 0) return;
+
+    const scanTargets: RepoScanTarget[] = chosenRepos.map((r) => ({
+      absolute_path: r.absolute_path,
+      repo_name: r.name,
+      relative_path: r.relative_path,
+      default_branch: r.default_branch,
+    }));
+
+    const scopeLabel =
+      chosenRepos.length === 1 ? chosenRepos[0].name : `${chosenRepos.length} repositories`;
+
+    set({
+      isPruneModalOpen: true,
+      isScanningDefunct: true,
+      pruneScopeLabel: scopeLabel,
+      pruneScanTargets: scanTargets,
+      defunctByRepo: [],
+      lastPruneOutcomes: null,
+      lastError: null,
+    });
+
+    const res = await commands.scanDefunctBranches(scanTargets, fetchFirst);
+    if (res.status === 'ok') {
+      set({ defunctByRepo: res.data, isScanningDefunct: false });
+    } else {
+      set({ isScanningDefunct: false, lastError: formatAppError(res.error) });
+    }
+  },
+
+  rescanDefunctBranches: async (fetchFirst) => {
+    const { pruneScanTargets } = get();
+    if (pruneScanTargets.length === 0) return;
+
+    set({ isScanningDefunct: true, lastError: null });
+    const res = await commands.scanDefunctBranches(pruneScanTargets, fetchFirst);
+    if (res.status === 'ok') {
+      set({ defunctByRepo: res.data, isScanningDefunct: false });
+    } else {
+      set({ isScanningDefunct: false, lastError: formatAppError(res.error) });
+    }
+  },
+
+  executePruneBranches: async (targets) => {
+    if (targets.length === 0) return [];
+    set({ isPruningBranches: true, isConsoleOpen: true, lastError: null });
+
+    const res = await commands.pruneBranches(targets);
+    set({ isPruningBranches: false });
+
+    if (res.status === 'error') {
+      set({ lastError: formatAppError(res.error) });
+      return [];
+    }
+
+    const outcomes = res.data;
+    set({ lastPruneOutcomes: outcomes });
+
+    const affectedRepos = Array.from(new Set(targets.map((t) => t.repo_path)));
+    await Promise.all(affectedRepos.map((repoPath) => get().refreshSingleRepo(repoPath)));
+    await get().rescanDefunctBranches(false);
+    return outcomes;
+  },
+
+  closePruneModal: () =>
+    set({
+      isPruneModalOpen: false,
+      isScanningDefunct: false,
+      isPruningBranches: false,
+      lastPruneOutcomes: null,
+    }),
 }));

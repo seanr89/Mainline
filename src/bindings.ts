@@ -55,6 +55,22 @@ async syncRepos(targets: RepoSyncTarget[], strategy: SyncStrategy) : Promise<Res
 },
 async getAppVersionInfo() : Promise<AppVersionInfo> {
     return await TAURI_INVOKE("get_app_version_info");
+},
+async scanDefunctBranches(targets: RepoScanTarget[], fetchFirst: boolean) : Promise<Result<RepoDefunctBranches[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("scan_defunct_branches", { targets, fetchFirst }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async pruneBranches(targets: BranchPruneTarget[]) : Promise<Result<BranchPruneOutcome[], AppError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("prune_branches", { targets }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -70,10 +86,15 @@ async getAppVersionInfo() : Promise<AppVersionInfo> {
 
 export type AppError = { type: "Io"; details: string } | { type: "GitExecution"; details: { code: number; message: string } } | { type: "ParseError"; details: string } | { type: "InvalidPath"; details: string }
 export type AppVersionInfo = { name: string; version: string; raw_changelog: string; releases: ChangelogRelease[] }
+export type BranchPruneOutcome = { repo_path: string; branch_name: string; deleted: boolean; forced: boolean; error: string | null }
+export type BranchPruneTarget = { repo_path: string; branch_name: string; force: boolean }
 export type ChangelogRelease = { version: string; date: string; sections: ChangelogSection[] }
 export type ChangelogSection = { category: string; items: string[] }
+export type DefunctBranchInfo = { name: string; upstream: string; last_commit_hash: string; last_commit_title: string; last_commit_timestamp: number; is_merged: boolean; is_current: boolean; is_default: boolean; can_delete: boolean }
 export type GitProvider = "GitHub" | "GitLab" | "Bitbucket" | { Custom: string }
 export type LogPayload = { repo_path: string; line: string; is_stderr: boolean }
+export type RepoDefunctBranches = { repo_name: string; relative_path: string; absolute_path: string; current_branch: string; default_branch: string; branches: DefunctBranchInfo[]; fetch_error: string | null }
+export type RepoScanTarget = { absolute_path: string; repo_name: string; relative_path: string; default_branch: string }
 export type RepoStatus = { name: string; relative_path: string; absolute_path: string; current_branch: string; default_branch: string; ahead_count: number; behind_count: number; is_dirty: boolean; stashed_count: number; remote_url: string | null; provider: GitProvider; is_detached: boolean; last_commit_title: string; last_commit_hash: string; last_commit_timestamp: number }
 export type RepoSyncTarget = { absolute_path: string; branch: string; reset_to_default: boolean }
 export type SyncStrategy = "PullFastForwardOnly" | "FetchOnly" | "StashAndPull" | "HardResetAndPull"
