@@ -10,6 +10,7 @@ import {
   ArrowDownToLine,
   GitFork,
   Info,
+  Scissors,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
@@ -34,6 +35,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ searchInputRef }) => {
     includeSubmodules,
     setIncludeSubmodules,
     requestBatchAction,
+    openPruneModal,
   } = useWorkspaceStore();
 
   const handleOpenFolder = async () => {
@@ -133,6 +135,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({ searchInputRef }) => {
         >
           <GitMerge className="w-3.5 h-3.5 mr-1 text-amber-500" />
           Reset to Main
+        </button>
+
+        <button
+          type="button"
+          disabled={!hasRepos || busy}
+          onClick={() => void openPruneModal(undefined, true)}
+          title={`Scan and prune [gone] local branches across ${targetCount} repositories`}
+          className="flex items-center px-2.5 py-1 text-xs font-medium rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
+        >
+          <Scissors className="w-3.5 h-3.5 mr-1 text-rose-500" />
+          Prune
         </button>
 
         <button

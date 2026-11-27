@@ -70,3 +70,51 @@ pub struct AppVersionInfo {
     pub raw_changelog: String,
     pub releases: Vec<ChangelogRelease>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DefunctBranchInfo {
+    pub name: String,
+    pub upstream: String,
+    pub last_commit_hash: String,
+    pub last_commit_title: String,
+    pub last_commit_timestamp: f64,
+    pub is_merged: bool,
+    pub is_current: bool,
+    pub is_default: bool,
+    pub can_delete: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct RepoDefunctBranches {
+    pub repo_name: String,
+    pub relative_path: String,
+    pub absolute_path: String,
+    pub current_branch: String,
+    pub default_branch: String,
+    pub branches: Vec<DefunctBranchInfo>,
+    pub fetch_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct RepoScanTarget {
+    pub absolute_path: String,
+    pub repo_name: String,
+    pub relative_path: String,
+    pub default_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct BranchPruneTarget {
+    pub repo_path: String,
+    pub branch_name: String,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct BranchPruneOutcome {
+    pub repo_path: String,
+    pub branch_name: String,
+    pub deleted: bool,
+    pub forced: bool,
+    pub error: Option<String>,
+}

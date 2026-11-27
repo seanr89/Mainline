@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, GitBranch, Check } from 'lucide-react';
+import { ChevronDown, GitBranch, Check, Scissors } from 'lucide-react';
 import { RepoStatus, commands } from '../bindings';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
@@ -8,7 +8,7 @@ interface BranchDropdownProps {
 }
 
 export const BranchDropdown: React.FC<BranchDropdownProps> = ({ repo }) => {
-  const { requestBranchCheckout } = useWorkspaceStore();
+  const { requestBranchCheckout, openPruneModal } = useWorkspaceStore();
   const [isOpen, setIsOpen] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -90,6 +90,21 @@ export const BranchDropdown: React.FC<BranchDropdownProps> = ({ repo }) => {
               );
             })
           )}
+
+          <div className="mt-1 pt-1 border-t border-gray-200 dark:border-gray-800">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOpen(false);
+                void openPruneModal([repo], true);
+              }}
+              className="w-full flex items-center px-2.5 py-1.5 text-left text-[11px] font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
+            >
+              <Scissors className="w-3 h-3 mr-1.5 shrink-0" />
+              <span className="truncate">Review &amp; Prune Gone Branches…</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

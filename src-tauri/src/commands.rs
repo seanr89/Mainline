@@ -1,11 +1,15 @@
 use crate::error::AppError;
-use crate::git::{inspect_repo, inspect_workspace, list_repo_branches, run_git};
+use crate::git::{
+    inspect_repo, inspect_repo_defunct_branches, inspect_workspace, list_repo_branches,
+    prune_repo_branches, run_git,
+};
 use crate::models::{
-    AppVersionInfo, ChangelogRelease, ChangelogSection, LogPayload, RepoStatus, RepoSyncTarget,
-    SyncStrategy,
+    AppVersionInfo, BranchPruneOutcome, BranchPruneTarget, ChangelogRelease, ChangelogSection,
+    LogPayload, RepoDefunctBranches, RepoScanTarget, RepoStatus, RepoSyncTarget, SyncStrategy,
 };
 use crate::scanner::scan_for_repos;
 use crate::watcher::{start_workspace_watcher, WatcherState};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -343,6 +347,85 @@ pub async fn sync_repos(
 
     while join_set.join_next().await.is_some() {}
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn scan_defunct_branches(
+    app_handle: AppHandle,
+    targets: Vec<RepoScanTarget>,
+    fetch_first: bool,
+) -> Result<Vec<RepoDefunctBranches>, AppError> {
+    let permits = if fetch_first { 4 } else { 8 };
+    let semaphore = Arc::new(Semaphore::new(permits));
+    let mut join_set = JoinSet::new();
+
+    for target in targets {
+        let sem = Arc::clone(&semaphore);
+        join_set.spawn(async move {
+            let _permit = sem.acquire().await.ok()?;
+            Some(inspect_repo_defunct_branches(&target, fetch_first).await)
+        });
+    }
+
+    let mut results = Vec::new();
+    while let Some(joined) = join_set.join_next().await {
+        if let Ok(Some((entry, logs))) = joined {
+            for log in logs {
+                emit_log(&app_handle, &log.repo_path, log.line, log.is_stderr);
+            }
+            if !entry.branches.is_empty() || entry.fetch_error.is_some() {
+                results.push(entry);
+            }
+        }
+    }
+
+    results.sort_by(|a, b| {
+        a.repo_name
+            .to_lowercase()
+            .cmp(&b.repo_name.to_lowercase())
+            .then_with(|| a.relative_path.cmp(&b.relative_path))
+    });
+
+    Ok(results)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn prune_branches(
+    app_handle: AppHandle,
+    targets: Vec<BranchPruneTarget>,
+) -> Result<Vec<BranchPruneOutcome>, AppError> {
+    let mut grouped: BTreeMap<String, Vec<BranchPruneTarget>> = BTreeMap::new();
+    for target in targets {
+        grouped
+            .entry(target.repo_path.clone())
+            .or_default()
+            .push(target);
+    }
+
+    let semaphore = Arc::new(Semaphore::new(4));
+    let mut join_set = JoinSet::new();
+
+    for (repo_path, repo_targets) in grouped {
+        let sem = Arc::clone(&semaphore);
+        join_set.spawn(async move {
+            let _permit = sem.acquire().await.ok()?;
+            Some(prune_repo_branches(Path::new(&repo_path), &repo_targets).await)
+        });
+    }
+
+    let mut outcomes = Vec::new();
+    while let Some(joined) = join_set.join_next().await {
+        if let Ok(Some((repo_outcomes, logs))) = joined {
+            for log in logs {
+                emit_log(&app_handle, &log.repo_path, log.line, log.is_stderr);
+            }
+            outcomes.extend(repo_outcomes);
+        }
+    }
+
+    Ok(outcomes)
 }
 
 #[cfg(test)]
